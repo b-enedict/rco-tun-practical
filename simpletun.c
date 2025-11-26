@@ -200,6 +200,17 @@ int main(int argc, char *argv[]) {
 
   progname = argv[0];
 
+  // ===== Key Reading =====
+  unsigned char key[32];
+  FILE *key_file = fopen("shared_secret.key", "rb");
+  fread((char *) key, 1, 32, key_file);
+  fclose(key_file);
+
+  // ===== IV Definition =====
+  unsigned char nonce[12] = {0x42}; // This MUST be generated random in a production environment to be secure
+  int block_counter = 0;
+  unsigned char iv[16] = {0};
+
   
   /* Check command line options */
   while((option = getopt(argc, argv, "i:sc:p:uahd")) > 0){
@@ -347,8 +358,8 @@ int main(int argc, char *argv[]) {
       nread = cread(tap_fd, buffer, BUFSIZE);
 
       // Encryption
-      cesar_encrypt(buffer, nread, encryption_buffer);
-      // chacha20_encrypt(buffer, nread, encryption_buffer);
+      // cesar_encrypt(buffer, nread, encryption_buffer);
+      chacha20_encrypt(buffer, nread, encryption_buffer, key, iv);
 
       tap2net++;
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
@@ -379,8 +390,8 @@ int main(int argc, char *argv[]) {
       do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
 
       // Decryption
-      cesar_decrypt(encryption_buffer, nread, buffer);
-      // chacha20_encrypt(encryption_buffer, nread, buffer);
+      // cesar_decrypt(encryption_buffer, nread, buffer);
+      chacha20_encrypt(encryption_buffer, nread, buffer, key, iv);
 
       /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
       nwrite = cwrite(tap_fd, buffer, nread);
