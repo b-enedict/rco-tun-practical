@@ -41,7 +41,8 @@
 #include "chacha20.h"
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
-#define BUFSIZE 2000   
+#define BUFSIZE 2000
+#define COUNTER_BYTES 4   
 #define CLIENT 0
 #define SERVER 1
 #define PORT 55555
@@ -189,7 +190,7 @@ int main(int argc, char *argv[]) {
   uint16_t nread, nwrite, plength;
 //  uint16_t total_len, ethertype;
   char buffer[BUFSIZE];
-  char encryption_buffer[BUFSIZE];
+  char encryption_buffer[BUFSIZE+COUNTER_BYTES];
   struct sockaddr_in local, remote;
   char remote_ip[16] = "";
   unsigned short int port = PORT;
@@ -207,9 +208,9 @@ int main(int argc, char *argv[]) {
   fclose(key_file);
 
   // ===== IV Definition =====
-  unsigned char nonce[12] = {0x42}; // This MUST be generated random in a production environment to be secure
+  unsigned char send_salt[12] = {0x25}; // This MUST be generated random in a production environment to be secure
+  unsigned char receive_salt[12] = {0x55}; // This MUST be generated random in a production environment to be secure
   int block_counter = 0;
-  unsigned char iv[16] = {0};
 
   
   /* Check command line options */
@@ -359,13 +360,13 @@ int main(int argc, char *argv[]) {
 
       // Encryption
       // cesar_encrypt(buffer, nread, encryption_buffer);
-      chacha20_encrypt(buffer, nread, encryption_buffer, key, iv);
+      int plen = chacha20_send(buffer, nread, encryption_buffer, key, send_salt, &block_counter);
 
       tap2net++;
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
 
       /* write length + packet */
-      plength = htons(nread);
+      plength = htons(plen);
       nwrite = cwrite(net_fd, (char *)&plength, sizeof(plength));
       nwrite = cwrite(net_fd, encryption_buffer, nread);
       
@@ -391,7 +392,7 @@ int main(int argc, char *argv[]) {
 
       // Decryption
       // cesar_decrypt(encryption_buffer, nread, buffer);
-      chacha20_encrypt(encryption_buffer, nread, buffer, key, iv);
+      chacha20_receive(encryption_buffer, nread, buffer, key, receive_salt);
 
       /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
       nwrite = cwrite(tap_fd, buffer, nread);
