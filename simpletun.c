@@ -37,7 +37,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <stdarg.h>
-#include "cesar.h"
+// #include "cesar.h"
 #include "chacha20.h"
 
 /* buffer for reading from tun/tap interface, must be >= 1500 */
@@ -96,6 +96,8 @@ int cread(int fd, char *buf, int n){
   
   int nread;
 
+  printf("Read: %s\n", buf);
+
   if((nread=read(fd, buf, n))<0){
     perror("Reading data");
     exit(1);
@@ -110,6 +112,8 @@ int cread(int fd, char *buf, int n){
 int cwrite(int fd, char *buf, int n){
   
   int nwrite;
+
+  printf("Wrote: %s\n", buf);
 
   if((nwrite=write(fd, buf, n))<0){
     perror("Writing data");
@@ -209,7 +213,7 @@ int main(int argc, char *argv[]) {
 
   // ===== IV Definition =====
   unsigned char send_salt[12] = {0x25}; // This MUST be generated random in a production environment to be secure
-  unsigned char receive_salt[12] = {0x55}; // This MUST be generated random in a production environment to be secure
+  unsigned char receive_salt[12] = {0x25}; // This MUST be generated random in a production environment to be secure
   int block_counter = 0;
 
   
@@ -358,19 +362,19 @@ int main(int argc, char *argv[]) {
       
       nread = cread(tap_fd, buffer, BUFSIZE);
 
-      // Encryption
-      // cesar_encrypt(buffer, nread, encryption_buffer);
-      int plen = chacha20_send(buffer, nread, encryption_buffer, key, send_salt, &block_counter);
-
       tap2net++;
       do_debug("TAP2NET %lu: Read %d bytes from the tap interface\n", tap2net, nread);
-
-      /* write length + packet */
-      plength = htons(plen);
-      nwrite = cwrite(net_fd, (char *)&plength, sizeof(plength));
-      nwrite = cwrite(net_fd, encryption_buffer, nread);
       
-      do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nwrite);
+      // Encryption
+      // cesar_encrypt(buffer, nread, encryption_buffer);
+      int nsend = chacha20_send(buffer, nread, encryption_buffer, key, send_salt, &block_counter);
+      
+      /* write length + packet */
+      plength = htons(nsend);
+      nwrite = cwrite(net_fd, (char *)&plength, sizeof(plength));
+      nwrite = cwrite(net_fd, encryption_buffer, nsend);
+      
+      do_debug("TAP2NET %lu: Written %d bytes to the network\n", tap2net, nsend);
     }
 
     if(FD_ISSET(net_fd, &rd_set)){
@@ -389,14 +393,14 @@ int main(int argc, char *argv[]) {
       /* read packet */
       nread = read_n(net_fd, encryption_buffer, ntohs(plength));
       do_debug("NET2TAP %lu: Read %d bytes from the network\n", net2tap, nread);
-
+      
       // Decryption
       // cesar_decrypt(encryption_buffer, nread, buffer);
-      chacha20_receive(encryption_buffer, nread, buffer, key, receive_salt);
+      int nreceive = chacha20_receive(encryption_buffer, nread, buffer, key, receive_salt);
 
       /* now buffer[] contains a full packet or frame, write it into the tun/tap interface */ 
-      nwrite = cwrite(tap_fd, buffer, nread);
-      do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nwrite);
+      nwrite = cwrite(tap_fd, buffer, nreceive);
+      do_debug("NET2TAP %lu: Written %d bytes to the tap interface\n", net2tap, nreceive);
     }
   }
   
